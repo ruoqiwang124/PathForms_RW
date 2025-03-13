@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import * as d3 from "d3";
 
@@ -377,11 +378,24 @@ function Edge(props: {
 }
 
 export default function CayleyTree() {
-  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  /** 
+   * 1) 避免在顶层访问 window，先给 size 一个安全初值 (0,0)。 
+   * 2) 再用 useEffect 在客户端获取并更新实际尺寸。
+   */
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
-    const handleResize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    function handleResize() {
+      setSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    }
+    // 首次执行
+    handleResize();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   // 是否在关卡模式
@@ -417,9 +431,7 @@ export default function CayleyTree() {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const gRef = useRef<SVGGElement | null>(null);
 
-  //----------------------------
-  // 回调：自适应画面
-  //----------------------------
+  /** fitToScreen 回调 */
   const fitToScreen = useCallback(() => {
     if (!gRef.current || nodes.length === 0) return;
     const sel = d3.select(gRef.current);
@@ -432,6 +444,8 @@ export default function CayleyTree() {
     const margin = 20;
     const w = size.width;
     const h = size.height;
+    if (w === 0 || h === 0) return;
+
     const scale = Math.min(w/(width+2*margin), h/(height+2*margin));
     const tx = w/2 - scale*(x+width/2);
     const ty = h/2 - scale*(y+height/2);
@@ -439,10 +453,15 @@ export default function CayleyTree() {
     sel.attr("transform", `translate(${tx}, ${ty}) scale(${scale})`);
   }, [nodes, size]);
 
-  //----------------------------
-  // 1) 生成 Cayley Tree
-  //----------------------------
+  /**
+   * 2) 当我们拿到实际的 size 时，再构建 Cayley Tree
+   */
   useEffect(() => {
+    if (size.width === 0 || size.height === 0) {
+      // 说明还没拿到浏览器尺寸，此时先不生成
+      return;
+    }
+
     const nodeMap = new Map<string, NodeSim>();
     const linkMap = new Map<string, LinkSim>();
 
@@ -469,11 +488,13 @@ export default function CayleyTree() {
     setPathSymbols([]);
   }, [size]);
 
-  //----------------------------
-  // 2) d3-zoom
-  //----------------------------
+  /** 
+   * 3) d3-zoom 
+   * 当 nodes/links 准备好后，启用 zoom & 自适应。
+   */
   useEffect(() => {
     if (!svgRef.current || !gRef.current) return;
+    if (nodes.length === 0 || links.length === 0) return;
 
     const svgSel = d3.select(svgRef.current);
     const gSel = d3.select(gRef.current);
@@ -484,14 +505,10 @@ export default function CayleyTree() {
       .on("zoom", (evt) => {
         gSel.attr("transform", evt.transform);
       });
-
-    // 去掉 as any，直接调用即可
     svgSel.call(zoomBehavior);
 
-    // 调用自适应
     fitToScreen();
-
-  }, [fitToScreen]);
+  }, [nodes, links, fitToScreen]);
 
   //----------------------------
   // hover/click
